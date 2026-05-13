@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentProfile } from '@/lib/auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { ALL_QUESTS } from '@/lib/quests'
 
 export async function POST(req: NextRequest) {
   const profile = await getCurrentProfile()
@@ -22,13 +23,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Already completed' }, { status: 409 })
   }
 
-  const { data: quest } = await supabase
-    .from('quests')
-    .select('xp_reward')
-    .eq('slug', quest_slug)
-    .single()
+  const codeDef = ALL_QUESTS.find((q) => q.slug === quest_slug)
+  let xpReward = codeDef?.xp_reward ?? 0
 
-  const xpReward = quest?.xp_reward ?? 0
+  if (!xpReward) {
+    const { data: quest } = await supabase
+      .from('quests')
+      .select('xp_reward')
+      .eq('slug', quest_slug)
+      .single()
+    xpReward = quest?.xp_reward ?? 0
+  }
 
   await supabase.from('user_quests').upsert({
     user_id: profile.id,

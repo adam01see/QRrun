@@ -32,6 +32,12 @@ export interface Activity {
   workout_type: number    // 0=default, 1=race, 2=long run, 3=workout
   xp_earned: number
   is_pr: boolean
+  elev_high: number | null
+  start_lat: number | null
+  start_lng: number | null
+  city: string | null
+  country: string | null
+  country_code: string | null
   created_at: string
 }
 

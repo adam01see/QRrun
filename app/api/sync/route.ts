@@ -5,6 +5,8 @@ import { getStravaActivities, getValidToken } from '@/lib/strava'
 import { calculateRunXP, getLevelFromXP } from '@/lib/xp'
 import { checkNewAchievements } from '@/lib/achievements'
 import { calcFriendshipXP, getFriendshipLevel, friendshipKey } from '@/lib/friendship'
+import { reverseGeocode } from '@/lib/geocoding'
+import { checkAutoQuests, ALL_QUESTS, QuestCheckContext } from '@/lib/quests'
 
 export async function POST() {
   const profile = await getCurrentProfile()
@@ -12,7 +14,6 @@ export async function POST() {
 
   const supabase = getSupabaseAdmin()
 
-  // Refresh token if needed
   const { accessToken, refreshed, newTokenData } = await getValidToken(profile)
   if (refreshed && newTokenData) {
     await supabase
@@ -25,7 +26,6 @@ export async function POST() {
       .eq('id', profile.id)
   }
 
-  // Fetch existing strava IDs so we don't re-insert
   const { data: existing } = await supabase
     .from('activities')
     .select('strava_id')
@@ -33,7 +33,6 @@ export async function POST() {
 
   const existingIds = new Set((existing ?? []).map((a) => a.strava_id))
 
-  // Pull up to 200 activities (2 pages)
   const page1 = await getStravaActivities(accessToken, 1, 100)
   const page2 = await getStravaActivities(accessToken, 2, 100)
   const allActivities = [...page1, ...page2]
@@ -46,14 +45,12 @@ export async function POST() {
     return NextResponse.json({ synced: 0, message: 'Already up to date' })
   }
 
-  // Get existing activities for PR detection
   const { data: existingActivities } = await supabase
     .from('activities')
     .select('distance, moving_time')
     .eq('user_id', profile.id)
 
-  // Track best time per distance bucket for PR detection
-  const prMap = new Map<string, number>() // bucket → best time (seconds)
+  const prMap = new Map<string, number>()
   const bucket = (m: number) => {
     if (m < 6000) return '5k'
     if (m < 12000) return '10k'
@@ -67,7 +64,9 @@ export async function POST() {
     if (a.moving_time < current) prMap.set(b, a.moving_time)
   }
 
-  const toInsert = runs.map((a: any) => {
+  // Build rows with geocoding (rate-limited at 1 req/sec per Nominatim ToS)
+  const toInsert = []
+  for (const a of runs) {
     const b = bucket(a.distance)
     const bestSoFar = prMap.get(b) ?? Infinity
     const isPR = a.moving_time < bestSoFar
@@ -80,7 +79,23 @@ export async function POST() {
       is_pr: isPR,
     }
 
-    return {
+    const lat: number | null = a.start_latlng?.[0] ?? null
+    const lng: number | null = a.start_latlng?.[1] ?? null
+
+    let city: string | null = null
+    let country: string | null = null
+    let country_code: string | null = null
+
+    if (lat !== null && lng !== null) {
+      const geo = await reverseGeocode(lat, lng)
+      city = geo.city
+      country = geo.country
+      country_code = geo.country_code
+      // Nominatim rate limit: 1 req/sec
+      await new Promise((r) => setTimeout(r, 1100))
+    }
+
+    toInsert.push({
       user_id: profile.id,
       strava_id: a.id,
       name: a.name,
@@ -95,12 +110,17 @@ export async function POST() {
       workout_type: a.workout_type ?? 0,
       xp_earned: calculateRunXP(partial),
       is_pr: isPR,
-    }
-  })
+      elev_high: a.elev_high ?? null,
+      start_lat: lat,
+      start_lng: lng,
+      city,
+      country,
+      country_code,
+    })
+  }
 
   await supabase.from('activities').insert(toInsert)
 
-  // Recalculate total XP
   const { data: allUserActivities } = await supabase
     .from('activities')
     .select('*')
@@ -109,7 +129,6 @@ export async function POST() {
   const totalXP = (allUserActivities ?? []).reduce((sum, a) => sum + (a.xp_earned ?? 0), 0)
   const level = getLevelFromXP(totalXP)
 
-  // Check streak
   const dates = (allUserActivities ?? [])
     .map((a) => a.start_date.split('T')[0])
     .sort()
@@ -162,7 +181,49 @@ export async function POST() {
     finalXP += newAchievements.reduce((sum, a) => sum + a.xp_reward, 0)
   }
 
-  // Process active pairings — find runs today that match a partner's runs
+  // Check auto quests
+  const { data: completedQuestRows } = await supabase
+    .from('user_quests')
+    .select('quest_slug')
+    .eq('user_id', profile.id)
+    .eq('status', 'completed')
+
+  const completedQuestSlugs = new Set((completedQuestRows ?? []).map((r) => r.quest_slug))
+
+  const { data: friendshipRows } = await supabase
+    .from('friendships')
+    .select('id, total_km, run_count')
+    .or(`user1_id.eq.${profile.id},user2_id.eq.${profile.id}`)
+
+  const distinctFriendCount = friendshipRows?.length ?? 0
+  const totalSharedKm = (friendshipRows ?? []).reduce((s, f) => s + (f.total_km ?? 0), 0)
+  const sharedRunCount = (friendshipRows ?? []).reduce((s, f) => s + (f.run_count ?? 0), 0)
+
+  const questCtx: QuestCheckContext = {
+    activities: allUserActivities ?? [],
+    profile: { ...profile, current_streak: streak },
+    distinctFriendCount,
+    totalSharedKm,
+    sharedRunCount,
+  }
+
+  const newlyCompletedQuests = checkAutoQuests(questCtx, completedQuestSlugs)
+
+  if (newlyCompletedQuests.length) {
+    await supabase.from('user_quests').upsert(
+      newlyCompletedQuests.map((q) => ({
+        user_id: profile.id,
+        quest_slug: q.slug,
+        status: 'completed',
+        progress: 1,
+        completed_at: new Date().toISOString(),
+      })),
+      { onConflict: 'user_id,quest_slug' }
+    )
+    finalXP += newlyCompletedQuests.reduce((sum, q) => sum + q.xp_reward, 0)
+  }
+
+  // Process run pairings
   const today = new Date().toISOString().split('T')[0]
   const { data: pairings } = await supabase
     .from('run_pairings')
@@ -176,7 +237,6 @@ export async function POST() {
   for (const pairing of pairings ?? []) {
     const partnerId = pairing.user1_id === profile.id ? pairing.user2_id : pairing.user1_id
 
-    // Get my runs today
     const { data: myRuns } = await supabase
       .from('activities')
       .select('*')
@@ -184,7 +244,6 @@ export async function POST() {
       .gte('start_date', `${today}T00:00:00`)
       .lte('start_date', `${today}T23:59:59`)
 
-    // Get partner's runs today
     const { data: partnerRuns } = await supabase
       .from('activities')
       .select('*')
@@ -194,7 +253,6 @@ export async function POST() {
 
     if (!myRuns?.length || !partnerRuns?.length) continue
 
-    // Check if this pairing already produced a shared_run today
     const [u1, u2] = friendshipKey(profile.id, partnerId)
     const { data: existingFriendship } = await supabase
       .from('friendships')
@@ -210,7 +268,7 @@ export async function POST() {
       .eq('run_date', today)
       .single()
 
-    if (existingSharedRun) continue // already processed today
+    if (existingSharedRun) continue
 
     const myRun = myRuns[0]
     const partnerRun = partnerRuns[0]
@@ -218,7 +276,6 @@ export async function POST() {
     const partnerKm = partnerRun.distance / 1000
     const friendshipXP = calcFriendshipXP(myKm, partnerKm)
 
-    // Double XP for my run
     const bonusXP = myRun.xp_earned
     await supabase
       .from('activities')
@@ -226,7 +283,6 @@ export async function POST() {
       .eq('id', myRun.id)
     finalXP += bonusXP
 
-    // Upsert friendship
     let friendshipId: string
     if (existingFriendship) {
       const newFriendshipXP = existingFriendship.friendship_xp + friendshipXP
@@ -234,7 +290,8 @@ export async function POST() {
         .from('friendships')
         .update({
           total_km: existingFriendship.total_km + Math.min(myKm, partnerKm),
-          total_time_seconds: existingFriendship.total_time_seconds + Math.min(myRun.moving_time, partnerRun.moving_time),
+          total_time_seconds:
+            existingFriendship.total_time_seconds + Math.min(myRun.moving_time, partnerRun.moving_time),
           run_count: existingFriendship.run_count + 1,
           friendship_xp: newFriendshipXP,
           friendship_level: getFriendshipLevel(newFriendshipXP),
@@ -267,13 +324,11 @@ export async function POST() {
       friendship_xp_earned: friendshipXP,
     })
 
-    // Mark pairing as used
     await supabase
       .from('run_pairings')
       .update({ status: 'used' })
       .eq('id', pairing.id)
 
-    // Also double XP for partner's run (update their profile XP too)
     await supabase
       .from('activities')
       .update({ xp_earned: partnerRun.xp_earned * 2 })
@@ -304,6 +359,7 @@ export async function POST() {
   return NextResponse.json({
     synced: toInsert.length,
     newAchievements: newAchievements.map((a) => a.name),
+    newQuests: newlyCompletedQuests.map((q) => q.name),
     sharedRuns: sharedRunsCreated.length,
     totalXP: finalXP,
     level: getLevelFromXP(finalXP),
