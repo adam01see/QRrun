@@ -17,17 +17,25 @@ export const metadata: Metadata = {
   description: "Gamify your running",
 };
 
-export default function RootLayout({
+import BottomNav from '@/components/BottomNav'
+import { getCurrentProfile } from '@/lib/auth'
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const profile = await getCurrentProfile()
+
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-screen bg-zinc-950">
+        <main className={profile ? 'pb-20' : ''}>{children}</main>
+        {profile && <BottomNav />}
+      </body>
     </html>
   );
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Check } from 'lucide-react'
 
 interface QuestCardProps {
   slug: string
@@ -29,42 +30,31 @@ export default function QuestCard({
     setLoading(false)
   }
 
-  const typeColor: Record<string, string> = {
-    side: 'text-purple-400 bg-purple-400/10 border-purple-400/20',
-    weekly: 'text-blue-400 bg-blue-400/10 border-blue-400/20',
-    chain: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20',
-  }
+  const isCompleted = status === 'completed'
 
   return (
-    <div
-      className={`bg-zinc-900 border rounded-xl p-4 flex items-center justify-between transition-opacity ${
-        status === 'completed' ? 'opacity-50 border-zinc-800' : 'border-zinc-800'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className={`text-xs font-semibold px-2 py-1 rounded border shrink-0 mt-0.5 ${
-            typeColor[quest_type] ?? typeColor.side
-          }`}
-        >
-          {quest_type.toUpperCase()}
-        </div>
-        <div>
-          <p className="text-white font-medium text-sm">{name}</p>
-          <p className="text-zinc-500 text-xs mt-0.5">{description}</p>
-        </div>
+    <div className={`bg-zinc-900 border border-zinc-800/60 rounded-2xl p-4 flex items-center gap-3 transition-opacity ${isCompleted ? 'opacity-40' : ''}`}>
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isCompleted ? 'bg-green-500/20' : 'bg-zinc-800'}`}>
+        {isCompleted
+          ? <Check size={14} className="text-green-400" />
+          : <span className="text-sm">🎯</span>
+        }
       </div>
-      <div className="flex items-center gap-3 ml-4 shrink-0">
-        <span className="text-green-400 text-sm font-semibold">+{xp_reward} XP</span>
-        {status === 'completed' ? (
-          <span className="text-zinc-500 text-sm">Done</span>
-        ) : (
+
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium ${isCompleted ? 'text-zinc-400' : 'text-white'}`}>{name}</p>
+        <p className="text-zinc-600 text-xs mt-0.5 truncate">{description}</p>
+      </div>
+
+      <div className="shrink-0 flex items-center gap-2">
+        <span className="text-green-400 text-xs font-semibold">+{xp_reward}</span>
+        {!isCompleted && (
           <button
             onClick={handleComplete}
             disabled={loading}
-            className="text-xs bg-green-500 hover:bg-green-400 text-black font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            className="text-xs bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-zinc-700/60 text-zinc-300 font-medium px-3 py-1.5 rounded-xl transition-colors disabled:opacity-40"
           >
-            {loading ? '...' : 'Complete'}
+            {loading ? '...' : 'Done'}
           </button>
         )}
       </div>
