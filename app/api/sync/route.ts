@@ -119,7 +119,15 @@ export async function POST() {
     })
   }
 
-  await supabase.from('activities').insert(toInsert)
+  const { error: insertError } = await supabase.from('activities').insert(toInsert)
+
+  if (insertError) {
+    console.error('activities insert failed:', insertError.message)
+    return NextResponse.json(
+      { error: `Sync failed: ${insertError.message}` },
+      { status: 500 }
+    )
+  }
 
   const { data: allUserActivities } = await supabase
     .from('activities')

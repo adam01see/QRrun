@@ -5,6 +5,9 @@ interface GeoResult {
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<GeoResult> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 4000)
+
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
@@ -14,8 +17,10 @@ export async function reverseGeocode(lat: number, lng: number): Promise<GeoResul
           Accept: 'application/json',
         },
         cache: 'no-store',
+        signal: controller.signal,
       }
     )
+    clearTimeout(timer)
     if (!res.ok) return { city: null, country: null, country_code: null }
 
     const data = await res.json()
@@ -26,6 +31,7 @@ export async function reverseGeocode(lat: number, lng: number): Promise<GeoResul
 
     return { city, country, country_code }
   } catch {
+    clearTimeout(timer)
     return { city: null, country: null, country_code: null }
   }
 }
