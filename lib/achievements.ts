@@ -11,8 +11,6 @@ export const ALL_ACHIEVEMENTS: Achievement[] = [
   { slug: 'total_500k', name: 'Road Master', description: 'Run 500km total', icon: '🗺️', xp_reward: 1000, category: 'distance' },
 
   // Consistency
-  { slug: 'streak_7', name: 'Week Warrior', description: '7-day run streak', icon: '🔥', xp_reward: 150, category: 'consistency' },
-  { slug: 'streak_30', name: 'Iron Legs', description: '30-day run streak', icon: '⚡', xp_reward: 500, category: 'consistency' },
   { slug: 'runs_10', name: 'Habit Forming', description: 'Log 10 runs', icon: '📈', xp_reward: 100, category: 'consistency' },
   { slug: 'runs_50', name: 'Dedicated', description: 'Log 50 runs', icon: '🎯', xp_reward: 300, category: 'consistency' },
 

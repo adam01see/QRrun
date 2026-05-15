@@ -10,8 +10,6 @@ export interface Profile {
   token_expires_at: number
   total_xp: number
   level: number
-  current_streak: number
-  longest_streak: number
   last_run_date: string | null
   created_at: string
 }
@@ -89,3 +87,60 @@ export const LEVEL_THRESHOLDS = [
   { level: 6, xp: 15000, title: 'Beast' },
   { level: 7, xp: 30000, title: 'Legend' },
 ]
+
+// ── World Map ─────────────────────────────────────────────────────────────────
+
+export type BiomeId = 'road' | 'dark_forest' | 'magic_forest' | 'swamp' | 'desert' | 'mountain'
+
+export interface WorldLocation {
+  id: string
+  name: string
+  description: string
+  icon: string
+}
+
+export interface BiomeSegment {
+  biome: BiomeId
+  start_km: number
+  end_km: number
+}
+
+export interface WorldPath {
+  id: string
+  from: string
+  to: string
+  total_km: number
+  segments: BiomeSegment[]
+}
+
+export interface Creature {
+  slug: string
+  name: string
+  description: string
+  hp_km: number
+  damage: number
+  biomes: BiomeId[]
+  icon: string
+}
+
+export interface ActiveEncounter {
+  creature_slug: string
+  hp_km: number
+  km_dealt: number
+  started_at: string
+  deadline: string
+}
+
+export interface WorldState {
+  id: string
+  user_id: string
+  current_location_id: string | null
+  origin_id: string | null
+  destination_id: string | null
+  km_on_path: number
+  hp: number
+  encounter: ActiveEncounter | null
+  last_activity_processed_at: string | null
+  created_at: string
+  updated_at: string
+}

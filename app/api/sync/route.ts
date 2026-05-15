@@ -7,6 +7,8 @@ import { checkNewAchievements } from '@/lib/achievements'
 import { calcFriendshipXP, getFriendshipLevel, friendshipKey } from '@/lib/friendship'
 import { reverseGeocode } from '@/lib/geocoding'
 import { checkAutoQuests, ALL_QUESTS, QuestCheckContext } from '@/lib/quests'
+import { processRunKm } from '@/lib/world-engine'
+import { WorldState } from '@/types'
 
 export async function POST() {
   const profile = await getCurrentProfile()
@@ -142,28 +144,11 @@ export async function POST() {
     .sort()
     .reverse()
 
-  let streak = 0
-  let checkDate = new Date()
-  checkDate.setHours(0, 0, 0, 0)
-
-  for (const d of [...new Set(dates)]) {
-    const runDate = new Date(d)
-    const diff = Math.floor((checkDate.getTime() - runDate.getTime()) / 86400000)
-    if (diff <= 1) {
-      streak++
-      checkDate = runDate
-    } else {
-      break
-    }
-  }
-
   await supabase
     .from('profiles')
     .update({
       total_xp: totalXP,
       level,
-      current_streak: streak,
-      longest_streak: Math.max(profile.longest_streak, streak),
       last_run_date: dates[0] ?? null,
     })
     .eq('id', profile.id)
@@ -209,7 +194,7 @@ export async function POST() {
 
   const questCtx: QuestCheckContext = {
     activities: allUserActivities ?? [],
-    profile: { ...profile, current_streak: streak },
+    profile,
     distinctFriendCount,
     totalSharedKm,
     sharedRunCount,
@@ -363,6 +348,41 @@ export async function POST() {
     .from('profiles')
     .update({ total_xp: finalXP, level: getLevelFromXP(finalXP) })
     .eq('id', profile.id)
+
+  // Process new runs through the world engine
+  const { data: worldRow } = await supabase
+    .from('world_state')
+    .select('*')
+    .eq('user_id', profile.id)
+    .single()
+
+  if (worldRow) {
+    const lastProcessed = worldRow.last_activity_processed_at
+      ? new Date(worldRow.last_activity_processed_at)
+      : new Date(0)
+
+    const newRuns = toInsert
+      .filter(a => new Date(a.start_date) > lastProcessed)
+      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
+
+    if (newRuns.length) {
+      let worldState: WorldState = worldRow
+      for (const run of newRuns) {
+        const km = run.distance / 1000
+        const result = processRunKm(worldState, km)
+        worldState = result.state
+      }
+      const latestDate = newRuns[newRuns.length - 1].start_date
+      await supabase
+        .from('world_state')
+        .update({
+          ...worldState,
+          last_activity_processed_at: latestDate,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', profile.id)
+    }
+  }
 
   return NextResponse.json({
     synced: toInsert.length,

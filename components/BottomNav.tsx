@@ -2,13 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Users, QrCode, Trophy } from 'lucide-react'
+import { Home, Users, QrCode, Trophy, Map } from 'lucide-react'
 
 const NAV_ITEMS = [
-  { href: '/dashboard', icon: Home, label: 'Home' },
-  { href: '/friends', icon: Users, label: 'Friends' },
-  { href: '/profile', icon: QrCode, label: 'My QR' },
-  { href: '/achievements', icon: Trophy, label: 'Awards' },
+  { href: '/dashboard',    icon: Home,    label: 'Home'    },
+  { href: '/world',        icon: Map,     label: 'World'   },
+  { href: '/friends',      icon: Users,   label: 'Friends' },
+  { href: '/profile',      icon: QrCode,  label: 'My QR'  },
+  { href: '/achievements', icon: Trophy,  label: 'Awards'  },
 ]
 
 export default function BottomNav() {

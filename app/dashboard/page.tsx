@@ -9,7 +9,7 @@ import RacePredictor from '@/components/RacePredictor'
 import SyncButton from '@/components/SyncButton'
 import QuestsSection from '@/components/QuestsSection'
 import { Activity } from '@/types'
-import { QrCode, ChevronRight, Flame } from 'lucide-react'
+import { QrCode, ChevronRight } from 'lucide-react'
 
 export default async function DashboardPage() {
   const profile = await getCurrentProfile()
@@ -47,12 +47,6 @@ export default async function DashboardPage() {
             <h1 className="text-2xl font-bold text-white">{profile.firstname}</h1>
           </div>
           <div className="flex items-center gap-2">
-            {profile.current_streak > 0 && (
-              <div className="flex items-center gap-1 bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-1.5">
-                <Flame size={13} className="text-orange-400" />
-                <span className="text-orange-400 text-xs font-semibold">{profile.current_streak}</span>
-              </div>
-            )}
             <SyncButton />
           </div>
         </div>

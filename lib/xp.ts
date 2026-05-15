@@ -5,7 +5,6 @@ import { Activity, LEVEL_THRESHOLDS } from '@/types'
 // Long run (>15km): 1.5x multiplier
 // Race (workout_type=1): 2x multiplier
 // PR: flat +100 XP bonus
-// Streak multiplier applied separately when awarding
 
 export function calculateRunXP(activity: Partial<Activity>): number {
   const km = (activity.distance ?? 0) / 1000
