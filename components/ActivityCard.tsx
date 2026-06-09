@@ -9,16 +9,24 @@ const TYPE_CONFIG = {
   race: { emoji: '🏁', label: 'Race', color: 'text-yellow-400' },
   long: { emoji: '🛣️', label: 'Long Run', color: 'text-blue-400' },
   run: { emoji: '👟', label: 'Run', color: 'text-zinc-400' },
+  hike: { emoji: '⛰️', label: 'Hike', color: 'text-emerald-400' },
 }
 
 export default function ActivityCard({ activity }: ActivityCardProps) {
   const date = new Date(activity.start_date)
   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  const type = activity.workout_type === 1 ? 'race' : activity.distance >= 15000 ? 'long' : 'run'
+  const type =
+    (activity.activity_type ?? 'Run') === 'Hike'
+      ? 'hike'
+      : activity.workout_type === 1
+      ? 'race'
+      : activity.distance >= 15000
+      ? 'long'
+      : 'run'
   const config = TYPE_CONFIG[type]
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-4 flex items-center gap-3">
+    <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform duration-100">
       <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-lg shrink-0">
         {config.emoji}
       </div>

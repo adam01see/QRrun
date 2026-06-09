@@ -3,11 +3,10 @@ import { getCurrentProfile } from '@/lib/auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getStravaActivities, getValidToken } from '@/lib/strava'
 import { calculateRunXP, getLevelFromXP } from '@/lib/xp'
-import { checkNewAchievements } from '@/lib/achievements'
 import { calcFriendshipXP, getFriendshipLevel, friendshipKey } from '@/lib/friendship'
 import { reverseGeocode } from '@/lib/geocoding'
-import { checkAutoQuests, ALL_QUESTS, QuestCheckContext } from '@/lib/quests'
 import { processRunKm } from '@/lib/world-engine'
+import { CAMPAIGN_ADVANCE_MAP } from '@/lib/campaign'
 import { WorldState } from '@/types'
 
 export async function POST() {
@@ -39,8 +38,9 @@ export async function POST() {
   const page2 = await getStravaActivities(accessToken, 2, 100)
   const allActivities = [...page1, ...page2]
 
+  const TRACKED_TYPES = new Set(['Run', 'Hike'])
   const runs = allActivities.filter(
-    (a: any) => a.type === 'Run' && !existingIds.has(a.id)
+    (a: any) => TRACKED_TYPES.has(a.type) && !existingIds.has(a.id)
   )
 
   if (!runs.length) {
@@ -69,15 +69,16 @@ export async function POST() {
   // Build rows with geocoding (rate-limited at 1 req/sec per Nominatim ToS)
   const toInsert = []
   for (const a of runs) {
+    const isHike = a.type === 'Hike'
     const b = bucket(a.distance)
     const bestSoFar = prMap.get(b) ?? Infinity
-    const isPR = a.moving_time < bestSoFar
+    const isPR = !isHike && a.moving_time < bestSoFar
     if (isPR) prMap.set(b, a.moving_time)
 
     const partial = {
       distance: a.distance,
       moving_time: a.moving_time,
-      workout_type: a.workout_type ?? 0,
+      workout_type: isHike ? 0 : (a.workout_type ?? 0),
       is_pr: isPR,
     }
 
@@ -93,7 +94,6 @@ export async function POST() {
       city = geo.city
       country = geo.country
       country_code = geo.country_code
-      // Nominatim rate limit: 1 req/sec
       await new Promise((r) => setTimeout(r, 1100))
     }
 
@@ -101,6 +101,7 @@ export async function POST() {
       user_id: profile.id,
       strava_id: a.id,
       name: a.name,
+      activity_type: a.type as 'Run' | 'Hike',
       distance: a.distance,
       moving_time: a.moving_time,
       elapsed_time: a.elapsed_time,
@@ -153,70 +154,8 @@ export async function POST() {
     })
     .eq('id', profile.id)
 
-  // Check achievements
-  const { data: earnedRows } = await supabase
-    .from('user_achievements')
-    .select('achievement_slug')
-    .eq('user_id', profile.id)
-
-  const earnedSlugs = (earnedRows ?? []).map((r) => r.achievement_slug)
-  const newAchievements = checkNewAchievements(allUserActivities ?? [], earnedSlugs)
-
-  let finalXP = totalXP
-
-  if (newAchievements.length) {
-    await supabase.from('user_achievements').insert(
-      newAchievements.map((a) => ({
-        user_id: profile.id,
-        achievement_slug: a.slug,
-      }))
-    )
-    finalXP += newAchievements.reduce((sum, a) => sum + a.xp_reward, 0)
-  }
-
-  // Check auto quests
-  const { data: completedQuestRows } = await supabase
-    .from('user_quests')
-    .select('quest_slug')
-    .eq('user_id', profile.id)
-    .eq('status', 'completed')
-
-  const completedQuestSlugs = new Set((completedQuestRows ?? []).map((r) => r.quest_slug))
-
-  const { data: friendshipRows } = await supabase
-    .from('friendships')
-    .select('id, total_km, run_count')
-    .or(`user1_id.eq.${profile.id},user2_id.eq.${profile.id}`)
-
-  const distinctFriendCount = friendshipRows?.length ?? 0
-  const totalSharedKm = (friendshipRows ?? []).reduce((s, f) => s + (f.total_km ?? 0), 0)
-  const sharedRunCount = (friendshipRows ?? []).reduce((s, f) => s + (f.run_count ?? 0), 0)
-
-  const questCtx: QuestCheckContext = {
-    activities: allUserActivities ?? [],
-    profile,
-    distinctFriendCount,
-    totalSharedKm,
-    sharedRunCount,
-  }
-
-  const newlyCompletedQuests = checkAutoQuests(questCtx, completedQuestSlugs)
-
-  if (newlyCompletedQuests.length) {
-    await supabase.from('user_quests').upsert(
-      newlyCompletedQuests.map((q) => ({
-        user_id: profile.id,
-        quest_slug: q.slug,
-        status: 'completed',
-        progress: 1,
-        completed_at: new Date().toISOString(),
-      })),
-      { onConflict: 'user_id,quest_slug' }
-    )
-    finalXP += newlyCompletedQuests.reduce((sum, q) => sum + q.xp_reward, 0)
-  }
-
   // Process run pairings
+  let finalXP = totalXP
   const today = new Date().toISOString().split('T')[0]
   const { data: pairings } = await supabase
     .from('run_pairings')
@@ -349,7 +288,7 @@ export async function POST() {
     .update({ total_xp: finalXP, level: getLevelFromXP(finalXP) })
     .eq('id', profile.id)
 
-  // Process new runs through the world engine
+  // Process new activities through the world engine
   const { data: worldRow } = await supabase
     .from('world_state')
     .select('*')
@@ -367,16 +306,28 @@ export async function POST() {
 
     if (newRuns.length) {
       let worldState: WorldState = worldRow
+      let campaignStep: number = worldRow.campaign_step ?? 0
+
       for (const run of newRuns) {
         const km = run.distance / 1000
         const result = processRunKm(worldState, km)
         worldState = result.state
+
+        // Advance campaign if we just arrived at the right location
+        if (result.arrived && worldState.current_location_id) {
+          const nextStep = CAMPAIGN_ADVANCE_MAP[worldState.current_location_id]
+          if (nextStep !== undefined && nextStep > campaignStep) {
+            campaignStep = nextStep
+          }
+        }
       }
+
       const latestDate = newRuns[newRuns.length - 1].start_date
       await supabase
         .from('world_state')
         .update({
           ...worldState,
+          campaign_step: campaignStep,
           last_activity_processed_at: latestDate,
           updated_at: new Date().toISOString(),
         })
@@ -386,8 +337,6 @@ export async function POST() {
 
   return NextResponse.json({
     synced: toInsert.length,
-    newAchievements: newAchievements.map((a) => a.name),
-    newQuests: newlyCompletedQuests.map((q) => q.name),
     sharedRuns: sharedRunsCreated.length,
     totalXP: finalXP,
     level: getLevelFromXP(finalXP),

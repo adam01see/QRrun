@@ -28,6 +28,7 @@ export interface Activity {
   max_heartrate: number | null
   total_elevation_gain: number
   workout_type: number    // 0=default, 1=race, 2=long run, 3=workout
+  activity_type: 'Run' | 'Hike' | null
   xp_earned: number
   is_pr: boolean
   elev_high: number | null
@@ -72,11 +73,6 @@ export interface UserQuest {
   quests: Quest
 }
 
-export interface RacePrediction {
-  distance_km: number
-  label: string
-  predicted_seconds: number
-}
 
 export const LEVEL_THRESHOLDS = [
   { level: 1, xp: 0, title: 'Couch Potato' },
@@ -141,6 +137,7 @@ export interface WorldState {
   hp: number
   encounter: ActiveEncounter | null
   last_activity_processed_at: string | null
+  campaign_step: number | null
   created_at: string
   updated_at: string
 }

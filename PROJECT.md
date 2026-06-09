@@ -173,6 +173,57 @@ Explorer (new route), Pack Runner (run club), Social Runner (run with friend), S
 
 ---
 
+## World Map Feature (added May 2026)
+
+Fantasy travel system where real runs move the player across a map.
+
+### New table: `world_state`
+One row per user. Columns: `current_location_id`, `origin_id`, `destination_id`, `km_on_path`, `hp`, `encounter` (jsonb), `last_activity_processed_at`.
+
+After adding the table, run `NOTIFY pgrst, 'reload schema';` in Supabase SQL editor.
+
+### New files
+- `lib/world.ts` — static data: locations, paths, biomes, creatures, danger rates
+- `lib/world-engine.ts` — pure game logic: travel advance, encounter rolls, combat, 3-day timeout
+- `app/world/page.tsx` — world map page (server component)
+- `app/api/world/start-travel/route.ts` — POST to set/change destination
+- `components/WorldMapSVG.tsx` — SVG overlay on map image, clickable location nodes
+- `components/TravelSelector.tsx` — destination picker list below map
+- `public/world-map.png` — illustrated fantasy map (1254×1254px)
+
+### How it works
+- Player manually picks a destination from adjacent locations
+- Each Strava sync advances `km_on_path` by the new run's distance
+- Encounter rolls happen per run based on biome danger rate (road 8%, dark forest 30%, etc.)
+- Active encounter blocks travel — player must run `creature.hp_km` km to defeat it
+- If creature is not defeated within 3 days, it deals damage and disappears
+- Player dot on map is green (traveling) or red (in combat), with SVG pulse animation
+- Clicking a location node on the map directly sets it as destination
+
+### Locations and paths
+```
+Dwarfs Kingdom (643,193) — 10km road north of Starting City
+House of the Druid (149,619) — 15km dark forest west
+Magic Forest (1063,374) — 10km magic forest east
+Starting City (643,405) — hub
+Village of the Elfs (615,624) — 20km road south
+Mountain of the Sun (1093,613) — 10km mountain east of Village
+City of Outsiders (615,1149) — 40km south (swamp 0–20km, desert 20–40km)
+```
+
+### Creatures by biome
+Road: Stray Dog (1km), Bandit (3km)
+Dark Forest: Skeleton (2km), Wolf (3km), Dark Witch (8km)
+Magic Forest: Mischief Fairy (1km), Will-o'-Wisp (3km), Treant (7km)
+Swamp: Leech Swarm (4km), Swamp Troll (6km)
+Desert: Giant Scorpion (2km), Bandit (3km), Sand Wyrm (15km)
+Mountain: Mountain Eagle (2km), Stone Golem (10km), Stone Giant (12km)
+
+### Also removed this session
+- Streaks feature fully deleted (UI, sync calculation, DB writes, achievements)
+
+---
+
 ## Known Issues / Next Session Ideas
 
 - Strava sync only pulls 200 activities (2 pages) — needs pagination for heavy users
@@ -183,6 +234,10 @@ Explorer (new route), Pack Runner (run club), Social Runner (run with friend), S
 - No logout button implemented yet
 - Mobile PWA manifest not set up (can't "Add to Home Screen" cleanly yet)
 - Supabase URL in .env.local keeps getting `/rest/v1/` appended accidentally — watch for this
+- World map: `current_location_id` column must allow NULL (run `ALTER TABLE public.world_state ALTER COLUMN current_location_id DROP NOT NULL` if not already done)
+- World map: encounter rewards (XP on creature defeat) not yet implemented
+- World map: no arrival event/reward when reaching a location
+- World map: location descriptions/quests at destinations not yet built
 
 ---
 
